@@ -432,7 +432,8 @@
             debugLog('Loading videos from folder:', folderId);
 
             try {
-                const url = `${API_BASE}/file/list?login=${apiLogin}&key=${apiKey}&folder=${folderId}`;
+                // Use listfolder endpoint with folder parameter to get folder contents
+                const url = `${API_BASE}/file/listfolder?login=${apiLogin}&key=${apiKey}&folder=${folderId}`;
                 debugLog('Fetching videos from URL:', url);
 
                 const response = await fetch(url);
@@ -445,10 +446,23 @@
                     if (data.result && data.result.files && data.result.files.length > 0) {
                         processVideoFiles(data.result.files);
                         document.getElementById('searchInput').disabled = false;
+                        
+                        // Also show subfolders if any
+                        if (data.result.folders && data.result.folders.length > 0) {
+                            debugLog('Found subfolders:', data.result.folders);
+                            showStatus(`Found ${data.result.files.length} videos and ${data.result.folders.length} subfolders`, 'success');
+                        } else {
+                            showStatus(`Found ${data.result.files.length} videos`, 'success');
+                        }
                     } else {
                         allVideos = [];
-                        showStatus('No files found in this folder', 'info');
-                        debugLog('No files in folder');
+                        if (data.result && data.result.folders && data.result.folders.length > 0) {
+                            showStatus(`No videos in this folder, but found ${data.result.folders.length} subfolders`, 'info');
+                            debugLog('No files but found subfolders:', data.result.folders);
+                        } else {
+                            showStatus('No files found in this folder', 'info');
+                            debugLog('No files or subfolders in folder');
+                        }
                     }
                 } else {
                     const errorMsg = data.msg || `API returned status ${data.status}`;
@@ -562,4 +576,4 @@
         });
     </script>
 </body>
-        </html>
+    </html>
