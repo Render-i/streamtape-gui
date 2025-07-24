@@ -114,6 +114,15 @@
             content: ".";
             animation: dots 1.5s infinite;
         }
+        .debug-info {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
         @keyframes dots {
             0% { content: "."; }
             33% { content: ".."; }
@@ -156,6 +165,7 @@
             </select>
         </div>
         <div id="loading" class="loading">Loading</div>
+        <div id="debugInfo" class="debug-info" style="display: none;"></div>
         <div id="thumbnailGrid" class="thumbnail-grid"></div>
     </div>
 
@@ -164,6 +174,13 @@
         let videos = [];
         let apiLogin = "";
         let apiKey = "";
+
+        function debugLog(message, data = null) {
+            console.log(message, data);
+            const debugDiv = document.getElementById("debugInfo");
+            debugDiv.style.display = "block";
+            debugDiv.textContent += message + (data ? '\n' + JSON.stringify(data, null, 2) : '') + '\n\n';
+        }
 
         async function fetchFolders() {
             apiLogin = document.getElementById("apiLogin").value.trim();
@@ -177,12 +194,18 @@
             folderSelect.innerHTML = '<option value="" disabled selected>Select a folder</option>';
             folderSelect.disabled = true;
             document.getElementById("thumbnailGrid").innerHTML = "";
+            document.getElementById("debugInfo").textContent = "";
             document.getElementById("loading").style.display = "block";
 
             try {
-                const response = await fetch(`${API_BASE}/file/listfolder?login=${apiLogin}&key=${apiKey}`);
+                const url = `${API_BASE}/file/listfolder?login=${apiLogin}&key=${apiKey}`;
+                debugLog("Fetching folders from:", url);
+                
+                const response = await fetch(url);
                 const data = await response.json();
                 document.getElementById("loading").style.display = "none";
+
+                debugLog("Folders API response:", data);
 
                 if (data.status === 200 && data.result && data.result.folders) {
                     populateFolders(data.result.folders);
@@ -192,6 +215,7 @@
                 }
             } catch (error) {
                 document.getElementById("loading").style.display = "none";
+                debugLog("Error fetching folders:", error);
                 alert("Failed to fetch folders: " + error.message);
             }
         }
@@ -204,6 +228,7 @@
                 option.textContent = folder.name;
                 folderSelect.appendChild(option);
             });
+            debugLog("Populated folders:", folders);
         }
 
         async function loadVideos() {
@@ -216,26 +241,55 @@
             grid.innerHTML = "";
 
             try {
-                const response = await fetch(`${API_BASE}/file/list?login=${apiLogin}&key=${apiKey}&folder=${folderId}`);
+                const url = `${API_BASE}/file/list?login=${apiLogin}&key=${apiKey}&folder=${folderId}`;
+                debugLog("Fetching videos from:", url);
+                
+                const response = await fetch(url);
                 const data = await response.json();
                 loading.style.display = "none";
 
-                if (data.status === 200 && data.result && data.result.files) {
-                    videos = data.result.files
-                        .filter(file => file.linkid)
-                        .map(file => ({
-                            name: file.name,
-                            linkid: file.linkid,
-                            thumbnail: `https://thumb.tapecontent.net/thumb/${file.name}.jpg`,
-                            videoUrl: `https://streamtape.com/e/${file.linkid}?color=26,194,102`
-                        }));
-                    sortVideos();
+                debugLog("Videos API response:", data);
+
+                if (data.status === 200 && data.result) {
+                    if (data.result.files && data.result.files.length > 0) {
+                        debugLog("Raw files data:", data.result.files);
+                        
+                        // Less restrictive filtering - just check if file exists
+                        videos = data.result.files
+                            .filter(file => file && (file.linkid || file.link))
+                            .map(file => {
+                                // Try different possible properties for the video ID
+                                const videoId = file.linkid || file.link || file.id;
+                                const fileName = file.name || file.title || 'Unknown';
+                                
+                                return {
+                                    name: fileName,
+                                    linkid: videoId,
+                                    thumbnail: `https://thumb.tapecontent.net/thumb/${fileName}.jpg`,
+                                    videoUrl: `https://streamtape.com/e/${videoId}?color=26,194,102`,
+                                    originalData: file // Keep original data for debugging
+                                };
+                            });
+                        
+                        debugLog("Processed videos:", videos);
+                        
+                        if (videos.length > 0) {
+                            sortVideos();
+                        } else {
+                            grid.innerHTML = "<p>No valid video files found. Check debug info below.</p>";
+                        }
+                    } else {
+                        grid.innerHTML = "<p>No files found in this folder.</p>";
+                        debugLog("No files in folder or files array is empty");
+                    }
                 } else {
-                    grid.innerHTML = "<p>No videos found in this folder.</p>";
+                    grid.innerHTML = "<p>Error: " + (data.msg || "Failed to fetch videos") + "</p>";
+                    debugLog("API Error:", data);
                 }
             } catch (error) {
                 loading.style.display = "none";
                 grid.innerHTML = "<p>Error loading videos: " + error.message + "</p>";
+                debugLog("Fetch error:", error);
             }
         }
 
@@ -250,10 +304,13 @@
                 const thumbnailDiv = document.createElement("div");
                 thumbnailDiv.className = "thumbnail";
                 thumbnailDiv.innerHTML = `
-                    <img src="${video.thumbnail}" alt="${video.name}" onerror="this.src='https://via.placeholder.com/150';">
+                    <img src="${video.thumbnail}" alt="${video.name}" onerror="this.src='https://via.placeholder.com/150x100/cccccc/666666?text=No+Thumb';">
                     <p>${video.name}</p>
                 `;
-                thumbnailDiv.onclick = () => window.open(video.videoUrl, "_blank");
+                thumbnailDiv.onclick = () => {
+                    debugLog("Opening video:", video);
+                    window.open(video.videoUrl, "_blank");
+                };
                 grid.appendChild(thumbnailDiv);
             });
         }
@@ -273,6 +330,20 @@
             });
             displayVideos(sortedVideos);
         }
+
+        // Add button to toggle debug info
+        window.addEventListener('load', function() {
+            const container = document.querySelector('.container');
+            const toggleButton = document.createElement('button');
+            toggleButton.textContent = 'Toggle Debug Info';
+            toggleButton.className = 'api-button';
+            toggleButton.style.marginBottom = '10px';
+            toggleButton.onclick = function() {
+                const debugDiv = document.getElementById('debugInfo');
+                debugDiv.style.display = debugDiv.style.display === 'none' ? 'block' : 'none';
+            };
+            container.insertBefore(toggleButton, document.getElementById('debugInfo'));
+        });
     </script>
 </body>
-</html>
+                </html>
